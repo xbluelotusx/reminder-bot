@@ -5,9 +5,6 @@ from telegram import Bot, Update #Telegram API and Update Object in Telgream
 from telegram.ext import Dispatcher, MessageHandler, Filters # The dispatcher will process incoming updates. The message handler will call your handle_message function for any text message that is not a command.
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
-AIRTABLE_API_KEY = os.environ['AIRTABLE_API_KEY']
-AIRTABLE_BASE_ID = os.environ['AIRTABLE_BASE_ID']
-AIRTABLE_TABLE_NAME = os.environ['AIRTABLE_TABLE_NAME']
 
 app = Flask(__name__) #defining app in Flask
 bot = Bot(token=TELEGRAM_TOKEN) #creates a bot object
