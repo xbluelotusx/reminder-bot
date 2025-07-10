@@ -1,29 +1,64 @@
-import os # required for insert tokens and define port
-import requests # gives access to APIs, enablesHTTP requests (such as GET, POST, PUT, DELETE) 
-from flask import Flask, request #Flask is needed for web app. request is needed to parse the messages (Telegram) and push it as JSON in (Airtable)
-from telegram import Bot, Update #Telegram API and Update Object in Telgream
-from telegram.ext import Dispatcher, MessageHandler, Filters # The dispatcher will process incoming updates. The message handler will call your handle_message function for any text message that is not a command.
+import os
+import requests
+from datetime import datetime, time as dtime
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from apscheduler.schedulers.background import BackgroundScheduler
 
-TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+TOKEN = os.environ['TELEGRAM_TOKEN']
+DATA_FILE = "messages.json"
+SEND_HOUR = 18  # 24-hour format. Change to your preferred hour.
+SEND_MINUTE = 0  # Change to your preferred minute.
 
-app = Flask(__name__) #defining app in Flask
-bot = Bot(token=TELEGRAM_TOKEN) #creates a bot object
+def load_messages():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {}
 
-    
-def handle_message(update, context):
-    user = update.message.from_user
-    update.message.reply_text("Your message has been saved!")
+def save_messages(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f)
 
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send me anything and I'll remember it! Every day at the set time, I'll send you everything you've sent me.")
 
-dispatcher = Dispatcher(bot, None, workers=0)
-dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+    text = update.message.text
+
+    data = load_messages()
+    if user_id not in data:
+        data[user_id] = []
+    data[user_id].append({"text": text, "timestamp": datetime.now().isoformat()})
+    save_messages(data)
+    await update.message.reply_text("Got it! I'll remember this.")
+
+async def send_daily(context: ContextTypes.DEFAULT_TYPE):
+    data = load_messages()
+    for user_id, messages in data.items():
+        chat_id = int(user_id)
+        history = "\n".join([msg["text"] for msg in messages])
+        if history:
+            await context.bot.send_message(chat_id=chat_id, text="Your message history:\n" + history)
+
+def schedule_daily_job(application):
+    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler.add_job(
+        lambda: application.create_task(send_daily(application.bot)),
+        trigger="cron",
+        hour=SEND_HOUR,
+        minute=SEND_MINUTE,
+    )
+    scheduler.start()
+
+def main():
+    application = Application.builder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Start the scheduler after the application has started
+    application.post_init = lambda _: schedule_daily_job(application)
+    application.run_polling()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
+    main()
