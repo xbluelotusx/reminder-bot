@@ -10,18 +10,14 @@ from telegram.ext import (
     filters,
 )
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, request
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 DATA_FILE = "messages.json"
-SEND_HOUR = 18     # UTC hour to send (24h format)
-SEND_MINUTE = 0    # UTC minute to send
-PORT = int(os.environ.get('PORT', 10000))  # Render exposes PORT env var
+SEND_HOUR = 18
+SEND_MINUTE = 0
+PORT = int(os.environ.get('PORT', 10000))
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Set this to your Render public URL
-
-app = Flask(__name__)
-application = None  # Will hold the PTB Application instance
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g. https://reminder-bot-cvv8.onrender.com
 
 def load_messages():
     if os.path.exists(DATA_FILE):
@@ -84,36 +80,24 @@ def schedule_daily_job(application: Application):
 async def post_init(application: Application):
     schedule_daily_job(application)
 
-@app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
-    if application is None:
-        return "Bot not ready", 503
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    application.update_queue.put_nowait(update)
-    return "ok"
-
 def main():
-    global application
     if not TOKEN:
-        print("Please set your Telegram bot token in the TELEGRAM_TOKEN environment variable.")
+        print("Please set your TELEGRAM_TOKEN env variable.")
         return
     if not WEBHOOK_URL:
-        print("Please set your public Render URL in the WEBHOOK_URL environment variable (e.g. https://your-service.onrender.com)")
+        print("Please set your WEBHOOK_URL env variable (e.g. https://reminder-bot-cvv8.onrender.com)")
         return
-
     application = Application.builder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.post_init = post_init
 
-    # Set webhook
     webhook_url_full = WEBHOOK_URL + WEBHOOK_PATH
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         webhook_url=webhook_url_full,
-        allowed_updates=Update.ALL_TYPES,
-        stop_signals=None  # Let Flask handle shutdown
+        allowed_updates=Update.ALL_TYPES
     )
 
 if __name__ == "__main__":
